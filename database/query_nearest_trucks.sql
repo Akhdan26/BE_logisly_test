@@ -1,35 +1,28 @@
 -- ============================================================
--- Query: Cari truk dalam radius tertentu dari suatu koordinat
---        berdasarkan lokasi terbaru (latest timestamp) tiap truk.
+-- Cari truk dalam radius tertentu (berdasarkan lokasi terbaru)
 -- MySQL / MariaDB
--- Soal No. 2 — Database Design
 -- ============================================================
 
--- Parameter input (ganti sesuai kebutuhan):
---   @center_lat  : Latitude titik pusat
---   @center_lng  : Longitude titik pusat
---   @radius_km   : Radius pencarian dalam kilometer
-
-SET @center_lat = -6.2088;   -- Contoh: Jakarta
+-- Ganti parameter ini sesuai kebutuhan
+SET @center_lat = -6.2088;   -- (contoh: Jakarta)
 SET @center_lng = 106.8456;
 SET @radius_km  = 5.0;       -- 5 km
 
 
--- ------------------------------------------------------------
--- Query Utama (MySQL 8.0+ dengan ST_Distance_Sphere)
--- ------------------------------------------------------------
--- Strategi optimasi:
--- 1. Subquery dapatkan latest location per truck (MAX timestamp).
--- 2. Bounding-box pre-filter: eliminasi titik di luar kotak kasar
---    (± ~0.045° per 5 km latitude, ± ~0.045° / cos(lat) longitude)
---    untuk mengurangi jumlah pemanggilan ST_Distance_Sphere.
--- 3. Hitung jarak hanya untuk titik yang lolos bounding-box,
---    lalu filter WHERE distance <= @radius_km.
--- 4. Join ke trucks untuk dapatkan license_plate_number.
+-- ============================================================
+-- Query Utama (MySQL 8.0+ / ST_Distance_Sphere)
+-- ============================================================
 --
--- Kompleksitas: subquery GROUP BY truck_id akan terbantu oleh
--- composite index idx_truck_ts (truck_id, timestamp DESC).
--- ------------------------------------------------------------
+-- Flow optimasi:
+-- 1. Dapetin lokasi terbaru tiap truk (MAX timestamp).
+-- 2. Bounding-box pre-filter: buang titik yang jelas di luar radius
+--    (1° ≈ 111 km, adjust buat longitude pake cos(lat)).
+-- 3. Hitung jarak akurat cuma buat row yang lolos pre-filter.
+-- 4. Join ke trucks buat ambil license_plate_number.
+--
+-- Subquery GROUP BY truck_id dibantu composite index
+-- idx_truck_ts (truck_id, timestamp DESC) dengan loose index scan.
+-- ============================================================
 
 SELECT
     t.truck_id,
@@ -69,18 +62,17 @@ INNER JOIN (
                AND lh.timestamp = latest_ts.max_ts
 ) latest ON t.truck_id = latest.truck_id
 
--- Bounding-box pre-filter (aproksimasi 1° ≈ 111 km)
--- Rumus:
---   Δlat = @radius_km / 111.0
---   Δlng = @radius_km / (111.0 * COS(RADIANS(@center_lat)))
--- Pre-filter ini drastis mengurangi row yang dihitung ST_Distance_Sphere-nya.
+-- Bounding-box pre-filter (1° lat ≈ 111 km).
+-- Delta latitude = radius / 111.0
+-- Delta longitude = radius / (111.0 * cos(lat)) — mengecil makin jauh dari equator
+-- Pre-filter ini ngurangin drastis row yang perlu dihitung jarak akuratnya.
 WHERE
     latest.latitude  BETWEEN @center_lat - (@radius_km / 111.0)
                          AND @center_lat + (@radius_km / 111.0)
     AND latest.longitude BETWEEN @center_lng - (@radius_km / (111.0 * COS(RADIANS(@center_lat))))
                              AND @center_lng + (@radius_km / (111.0 * COS(RADIANS(@center_lat))))
 
--- Hanya ambil yang jarak sphere-nya ≤ radius
+-- Filter final: cuma yang jarak akuratnya ≤ radius
 HAVING
     distance_km <= @radius_km
 
@@ -88,10 +80,10 @@ ORDER BY
     distance_km ASC;
 
 
--- ------------------------------------------------------------
--- Alternatif: Query menggunakan Haversine (MySQL semua versi)
---             Tanpa ST_Distance_Sphere (lebih portabel)
--- ------------------------------------------------------------
+-- ============================================================
+-- Alternatif: Haversine (MySQL semua versi, tanpa ST_Distance_Sphere)
+-- Lebih portabel, error ~0.3% (cukup buat radius < 100 km)
+-- ============================================================
 -- SELECT
 --     t.truck_id,
 --     t.license_plate_number,
@@ -111,27 +103,24 @@ ORDER BY
 -- (sisanya sama seperti query utama di atas)
 
 
--- ------------------------------------------------------------
--- Catatan Performa:
+-- ============================================================
+-- Catatan:
 --
--- 1. Bounding-box pre-filter sangat penting:
---    Tanpa pre-filter, ST_Distance_Sphere dihitung untuk SEMUA row
---    latest location. Dengan puluhan juta row, ini akan lambat.
---    Dengan bounding-box, hanya row dalam kotak kasar yang dihitung
---    jarak sphere-nya (biasanya < 1% total row).
+-- 1. Bounding-box pre-filter itu wajib.
+--    Tanpa ini, ST_Distance_Sphere (atau Haversine) dihitung untuk
+--    SEMUA row. Dengan puluhan juta row, query bisa makan detik-menit.
+--    Pre-filter bikin jumlah row yang dihitung jaraknya cuma < 1% total.
 --
--- 2. Composite index idx_truck_ts (truck_id, timestamp DESC):
---    MySQL bisa pakai index ini untuk subquery MAX(timestamp) GROUP BY truck_id
---    (loose index scan), mempercepat dapatkan latest location tiap truk.
+-- 2. idx_truck_ts bikin subquery MAX(timestamp) GROUP BY truck_id
+--    bisa pake loose index scan (lompat langsung ke timestamp terbaru
+--    tiap truck tanpa full scan).
 --
--- 3. Jika data location_history sangat besar (100M+ row), bisa
---    tambahkan tabel `truck_current_location` yang di-update via
---    trigger setiap insert ke location_history, sehingga query
---    radius langsung ke tabel kecil tanpa subquery GROUP BY.
+-- 3. Kalau location_history udah 100M+ row, bisa consider tabel
+--    denormalized `truck_current_location` (update via trigger)
+--    biar nggak perlu subquery GROUP BY lagi.
 --
 -- 4. ST_Distance_Sphere vs Haversine:
---    - ST_Distance_Sphere: akurat, mempertimbangkan bumi elipsoid,
---      tersedia di MySQL 5.7+.
---    - Haversine: aproksimasi bola, error ~0.3%, portabel ke semua versi.
---    - Untuk radius kecil (< 100 km), perbedaan keduanya negligible.
+--    - ST_Distance_Sphere: elipsoid, lebih akurat (MySQL 5.7+)
+--    - Haversine: aproksimasi bola, error ~0.3%, portabel semua versi
+--    - Untuk radius kecil (< 100 km), bedanya nggak significant
 -- ============================================================

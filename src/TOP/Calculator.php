@@ -5,86 +5,65 @@ declare(strict_types=1);
 namespace App\TOP;
 
 /**
- * Term of Payment (TOP) Calculator
+ * Kalkulator Term of Payment (TOP) buat transporter.
  *
- * Calculates the final Term of Payment for transporter invoices based on
- * baseline TOP and penalties for late POD (Proof of Delivery) submissions.
- *
- * Business Logic:
- * - POD Delay = min(max(0, POD Late Days), 30)
- * - ePOD Delay = min(max(0, ePOD Late Days), 30)
- * - Penalty = POD Delay + ePOD Delay
- * - Total TOP = Baseline TOP + Penalty
- * - Final TOP = min(Total TOP, 45)
+ * Logika:
+ * - Masing-masing delay (POD & ePOD) di-cap di 30 hari.
+ * - Delay negatif dianggap 0.
+ * - Total = baseline + POD_delay + ePOD_delay.
+ * - Hasil akhir di-cap di 45 hari (biar nggak keterlaluan).
  */
 final class Calculator
 {
-    /** Maximum penalty days for physical POD delay */
+    // Cap per jenis delay (30 hari sesuai requirement)
     public const TS_MAX_TOP_DELAY_POD = 30;
-
-    /** Maximum penalty days for electronic POD delay */
     public const TS_MAX_TOP_DELAY_EPOD = 30;
 
-    /** Absolute maximum TOP result in days */
+    // Cap absolut untuk hasil akhir
     public const TS_MAX_TOP_DELAY = 45;
 
-    /** Minimum value for any delay (negative treated as zero) */
+    // Baseline minimum, sekaligus batas bawah delay (negatif → 0)
     public const MIN_DELAY = 0;
 
     /**
-     * Calculate Term of Payment (TOP) result.
+     * Hitung TOP final berdasarkan baseline + denda keterlambatan.
      *
-     * @param int $baselineTop  Baseline TOP in days (from transporter contract)
-     * @param int $podLateDays  Physical POD late days (negative values treated as 0)
-     * @param int $epodLateDays Electronic POD late days (negative values treated as 0)
-     *
-     * @return int Final TOP result in days, capped at TS_MAX_TOP_DELAY (45)
-     *
-     * Edge cases handled:
-     * - Negative delay values → treated as 0
-     * - POD/ePOD delays capped individually at 30 days before summing
-     * - Final result capped at 45 days regardless of baseline + penalty
+     * @param int $baselineTop  TOP kontrak transporter (hari)
+     * @param int $podLateDays  Hari keterlambatan POD fisik
+     * @param int $epodLateDays Hari keterlambatan ePOD digital
      */
     public function calculate(int $baselineTop, int $podLateDays, int $epodLateDays): int
     {
-        // Ensure baseline is never negative
+        // Baseline nggak boleh negatif
         $baselineTop = max(self::MIN_DELAY, $baselineTop);
 
-        // Step 1: POD Delay — cap negative at 0, then cap max at 30
+        // POD delay: negatif → 0, lalu cap max 30
         $podDelay = min(
             max(self::MIN_DELAY, $podLateDays),
             self::TS_MAX_TOP_DELAY_POD
         );
 
-        // Step 2: ePOD Delay — cap negative at 0, then cap max at 30
+        // ePOD delay: sama, negatif → 0, cap max 30
         $epodDelay = min(
             max(self::MIN_DELAY, $epodLateDays),
             self::TS_MAX_TOP_DELAY_EPOD
         );
 
-        // Step 3: Penalty = sum of both capped delays
+        // Total denda = POD + ePOD (dua pelanggaran terpisah)
         $penalty = $podDelay + $epodDelay;
 
-        // Step 4: Total TOP = Baseline + Penalty
+        // TOP final = baseline + denda
         $totalTop = $baselineTop + $penalty;
 
-        // Step 5: Final TOP — cap at absolute maximum 45 days
+        // Cap absolut 45 hari
         return min($totalTop, self::TS_MAX_TOP_DELAY);
     }
 
     /**
-     * Calculate with configurable caps (for database-driven configuration).
+     * Versi configurable — kalau caps disimpen di database/config.
      *
-     * Useful when caps are stored in the database instead of using class constants.
-     *
-     * @param int $baselineTop    Baseline TOP in days
-     * @param int $podLateDays    Physical POD late days
-     * @param int $epodLateDays   Electronic POD late days
-     * @param int $maxPodDelay    Maximum POD delay cap (configurable)
-     * @param int $maxEpodDelay   Maximum ePOD delay cap (configurable)
-     * @param int $maxTopResult   Maximum final TOP result (configurable)
-     *
-     * @return int Final TOP result in days
+     * Method ini dipake kalau nilai caps nggak hardcoded, tapi
+     * diambil dari table config atau service parameter.
      */
     public function calculateWithConfig(
         int $baselineTop,

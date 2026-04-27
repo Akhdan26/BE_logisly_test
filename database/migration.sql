@@ -1,14 +1,10 @@
 -- ============================================================
--- Database Migration: Trucks & Location History
+-- Trucks & Location History Migration
 -- MySQL 8.0+ / MariaDB
--- Soal No. 2 — Database Design
 -- ============================================================
 
--- ------------------------------------------------------------
--- 1. Table: trucks
---    Menyimpan data master truk.
---    Sering di-query exact-match by license_plate_number.
--- ------------------------------------------------------------
+-- Master data truk.
+-- Sering di-query exact-match by license_plate_number.
 CREATE TABLE IF NOT EXISTS `trucks` (
     `truck_id`              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `license_plate_number`  VARCHAR(20)     NOT NULL,
@@ -16,9 +12,7 @@ CREATE TABLE IF NOT EXISTS `trucks` (
 
     PRIMARY KEY (`truck_id`),
 
-    -- Karena license_plate_number sering digunakan untuk lookup exact-match
-    -- dan nilainya unik per truk, kita pakai UNIQUE index.
-    -- VARCHAR(20) cukup untuk plat nomor Indonesia "B 1234 ABC".
+    -- Lookup exact-match plat nomor (query paling sering)
     UNIQUE INDEX `idx_license_plate` (`license_plate_number`)
 
 ) ENGINE=InnoDB
@@ -27,23 +21,18 @@ CREATE TABLE IF NOT EXISTS `trucks` (
   COMMENT='Master data truk';
 
 
--- ------------------------------------------------------------
--- 2. Table: location_history
---    Menyimpan riwayat lokasi truk (append-only).
---    Akan berisi puluhan juta baris.
---    Current location = row dengan timestamp terbaru per truck.
--- ------------------------------------------------------------
+-- Riwayat lokasi truk (append-only, bakal puluhan juta row).
+-- Lokasi terbaru per truk = row dengan timestamp paling gede.
 CREATE TABLE IF NOT EXISTS `location_history` (
     `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `truck_id`      BIGINT UNSIGNED NOT NULL,
     `timestamp`     DATETIME(0)     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `latitude`      DECIMAL(10,7)   NOT NULL COMMENT 'Latitude in WGS84, e.g. -6.2088',
-    `longitude`     DECIMAL(10,7)   NOT NULL COMMENT 'Longitude in WGS84, e.g. 106.8456',
+    `latitude`      DECIMAL(10,7)   NOT NULL COMMENT 'Latitude WGS84, misal -6.2088',
+    `longitude`     DECIMAL(10,7)   NOT NULL COMMENT 'Longitude WGS84, misal 106.8456',
     `address`       VARCHAR(255)    DEFAULT NULL,
 
-    -- Generated column: POINT dari lat/lng, diperlukan untuk spatial index
-    -- MySQL SRID 4326 expects axis order (latitude, longitude), conforming to EPSG:4326.
-    -- POINT(lat, lng) — reversed from common GIS (lng, lat) convention.
+    -- Generated column buat spatial index.
+    -- ST_PointFromText dengan SRID 4326 (WGS84).
     `coordinates`   POINT GENERATED ALWAYS AS (ST_PointFromText(
                         CONCAT('POINT(', `latitude`, ' ', `longitude`, ')'), 4326
                     )) STORED NOT NULL
@@ -51,13 +40,11 @@ CREATE TABLE IF NOT EXISTS `location_history` (
 
     PRIMARY KEY (`id`),
 
-    -- Composite index: mempercepat query "latest location per truck"
-    -- Query: WHERE truck_id = ? ORDER BY timestamp DESC LIMIT 1
-    -- Juga bermanfaat untuk subquery MAX(timestamp) GROUP BY truck_id
+    -- Composite index buat "latest location per truck"
+    -- Support loose index scan saat GROUP BY truck_id
     INDEX `idx_truck_ts` (`truck_id`, `timestamp` DESC),
 
-    -- Spatial index: mempercepat bounding-box / radius query dengan ST_Distance_Sphere
-    -- R-tree index pada generated column bertipe POINT
+    -- Spatial R-tree index buat query radius
     SPATIAL INDEX `idx_spatial` (`coordinates`),
 
     CONSTRAINT `fk_location_truck`
@@ -71,32 +58,23 @@ CREATE TABLE IF NOT EXISTS `location_history` (
 
 
 -- ============================================================
--- Catatan desain:
+-- Catatan:
 --
--- 1. Tipe data:
---    - BIGINT UNSIGNED: kapasitas hingga ~18 quintillion, cukup untuk puluhan juta row.
---    - DECIMAL(10,7): presisi ~1.1 cm di equator.
---      Menghindari FLOAT/DOUBLE yang bisa kehilangan presisi saat kalkulasi.
---    - DATETIME(0): tanpa fractional seconds, cukup untuk tracking lokasi.
---    - utf8mb4: mendukung emoji dan karakter internasional.
+-- 1. BIGINT UNSIGNED: kapasitas ~18 quintillion, aman buat puluhan juta row.
+--    INT (max ~2.1 milyar) bisa abis dalam beberapa tahun.
 --
--- 2. Generated column `coordinates` (POINT SRID 4326):
---    - STORED: dihitung saat INSERT/UPDATE, disimpan fisik di disk.
---      Cocok untuk append-only table (insert-heavy, jarang update).
---      Space overhead ~25 bytes per row (POINT internal format).
---    - Jika khawatir storage, bisa pakai VIRTUAL (dihitung on-the-fly),
---      tapi spatial index tetap butuh STORED agar bisa di-index.
+-- 2. DECIMAL(10,7): presisi ~1.1 cm di equator.
+--    Jangan pake FLOAT/DOUBLE — FLOAT presisi cuma ~1.7 meter.
 --
--- 3. Indeks:
---    - idx_license_plate (UNIQUE): optimal untuk exact-match lookup plat nomor.
---    - idx_truck_ts (truck_id, timestamp DESC): covering index untuk "latest location per truck"
---      dan join ke trucks.
---    - idx_spatial (SPATIAL): R-tree index pada coordinates, mempercepat query
---      ST_Distance_Sphere / MBRContains untuk pencarian radius.
+-- 3. DATETIME(0): tanpa fractional seconds, hemat 1 byte per row.
+--    Tracking lokasi truk nggak butuh presisi milidetik.
 --
--- 4. Tradeoff STORED vs VIRTUAL generated column:
---    - STORED: lebih cepat dibaca (tidak dihitung ulang), bisa di-index (spatial).
---      Overhead write ~25 byte per row.
---    - VIRTUAL: hemat storage (tidak disimpan), tapi tidak bisa spatial index.
---    - Untuk append-only table: STORED lebih baik karena write-once, read-many.
+-- 4. Generated column STORED (bukan VIRTUAL):
+--    - STORED: disimpan fisik, bisa di-index spatial. Overhead ~25 byte/row.
+--    - VIRTUAL: hemat space tapi nggak bisa spatial index.
+--    - Untuk append-only (insert-heavy, jarang update): STORED lebih cocok.
+--
+-- 5. idx_truck_ts (truck_id, timestamp DESC):
+--    Index ini bikin query "latest location" cepet karena MySQL bisa
+--    pake loose index scan — langsung lompat ke timestamp terbaru tiap truck.
 -- ============================================================

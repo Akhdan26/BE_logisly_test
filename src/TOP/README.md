@@ -1,42 +1,35 @@
-# Soal No. 3 — Term of Payment (TOP) Calculation
+# Soal No. 3 — TOP (Term of Payment) Calculator
 
-## Additional Questions & Answers
+## Additional Questions
 
-### a) Why cap POD and ePOD delays individually at 30 days before summing them, rather than capping the total penalty at 30 days?
+### a) Kenapa cap POD & ePOD masing-masing 30 hari, bukan cap total penalty 30 hari?
 
-Mencap tiap jenis delay secara individu (bukan total penalty) bertujuan untuk **fairness dan akuntabilitas** antara dua jenis keterlambatan yang berbeda:
+Dua keterlambatan ini emang beda banget:
 
-1. **Separate accountability**: POD fisik dan ePOD digital adalah dua proses berbeda yang dihandle oleh pihak berbeda. POD melibatkan dokumen fisik yang sering terkendala logistik lapangan (tanda tangan, kurir balik). ePOD melibatkan upload digital yang bisa dilakukan dari mana saja. Mencap individual memastikan *masing-masing pihak bertanggung jawab maksimal 30 hari*, bukan berbagi kuota 30 hari dengan pihak lain.
+1. **Yang nanganin beda**: POD fisik urusan lapangan (tanda tangan, kurir balik ke kantor). ePOD digital bisa upload dari mana aja. Kalau total penalty di-cap 30 hari, si transporter bisa main: tunda POD 30 hari, tapi ePOD 0 — dan tetap kena max 30. Padahal dia udah bikin dua kesalahan.
 
-2. **Prevents gaming**: Jika total penalty di-cap 30 hari, transporter bisa sengaja menunda POD sampai 30 hari dan berharap ePOD 0 hari, atau sebaliknya. Dengan individual cap, keterlambatan di satu sisi tidak mengurangi konsekuensi di sisi lain. Keduanya harus dipenuhi tepat waktu.
+2. **Nggak ada bagi-bagi kuota**: Masing-masing keterlambatan harus dipertanggungjawabkan sendiri. Kalau POD telat 30 hari DAN ePOD telat 30 hari, ya dua-duanya dihitung. Bukan berarti "oh total udah 30, yang satu gratis".
 
-3. **Worst-case protection**: Dua keterlambatan berbeda *seharusnya* bisa diakumulasi karena mereka merepresentasikan dua kegagalan terpisah. Cap 45 di akhir mencegah abuse total, tapi cap individual memungkinkan akumulasi wajar (30+30=60) sebelum final cap.
+3. **Final cap 45 ngelindungin**: Setelah dijumlahkan (30+30=60), final cap 45 yang motong. Jadi tetep ada safety net, tapi tiap pihak tetep kena hitungannya.
 
-### b) What would happen if we removed the final 45-day cap? Provide a scenario where this could be problematic.
+### b) Kalau cap final 45 dihapus, apa skenario terburuknya?
 
-Tanpa final cap 45 hari, TOP bisa mencapai nilai ekstrem:
+Transporter dengan baseline TOP 30 hari, POD telat 30 (max), ePOD telat 30 (max):
+- Total = 30 + 30 + 30 = **90 hari**. 3 bulan nunggu pembayaran.
 
-**Scenario problematis:**
-- Transporter dengan baseline TOP 30 hari
-- POD telat 30 hari (max individual cap)
-- ePOD telat 30 hari (max individual cap)
-- **Total TOP = 30 + 30 + 30 = 90 hari**
+Ini problematis banget buat transporter kecil/menengah:
+- Cash flow kering — nggak bisa bayar sopir, BBM, maintenance
+- Bisa keluar dari platform dan cari kerjaan lain
+- Supply chain kacau kalau banyak yang cabut
+- Di Indonesia juga ada aturan soal pembayaran yang wajar
 
-Ini artinya transporter baru dibayar **3 bulan** setelah invoice. Dampaknya:
+Cap 45 itu safety net: worst case tetep 1.5 bulan, bukan 3 bulan.
 
-1. **Cash flow crisis**: Transporter kecil/menengah tidak bisa bertahan tanpa pembayaran selama 3 bulan.
-2. **Operational disruption**: Transporter tidak bisa bayar sopir, BBM, maintenance truk.
-3. **Supply chain collapse**: Jika banyak transporter keluar, rantai logistik terganggu.
-4. **Legal/compliance risk**: Di Indonesia, UU No. 2/2017 tentang Jasa Konstruksi (jika relevan) dan praktik bisnis wajar mensyaratkan pembayaran dalam waktu yang reasonable.
-5. **Vendor relationship damage**: Transporter akan pindah ke platform lain yang menawarkan TOP lebih pendek.
+### c) Gimana kalau caps-nya mau configurable (dari DB, nggak hardcoded)?
 
-Cap 45 hari adalah **safety net bisnis** yang membatasi exposure maksimal: bahkan dengan pelanggaran maksimal di kedua sisi, transporter tetap dibayar dalam 45 hari.
+Di `Calculator.php` udah ada method `calculateWithConfig()` yang terima parameter. Untuk implementasi production:
 
-### c) How would you handle a requirement to make these caps configurable (stored in database/config) instead of hardcoded constants?
-
-Beberapa pendekatan (diimplementasikan di method `calculateWithConfig()` pada `Calculator.php`):
-
-**1. Database table untuk thresholds:**
+**1. Simpen di database:**
 ```sql
 CREATE TABLE top_config (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -46,41 +39,37 @@ CREATE TABLE top_config (
 );
 
 INSERT INTO top_config VALUES
-(1, 'max_pod_delay', 30),
-(2, 'max_epod_delay', 30),
-(3, 'max_top_result', 45),
-(4, 'min_delay', 0);
+('max_pod_delay', 30),
+('max_epod_delay', 30),
+('max_top_result', 45);
 ```
 
-**2. Service layer dengan caching:**
+**2. Service layer + cache:**
 ```php
 class TopConfigService {
-    public function getMaxPodDelay(): int { /* query DB dengan Redis cache */ }
+    public function getMaxPodDelay(): int { /* query DB, cache di Redis */ }
     public function getMaxEpodDelay(): int { /* ... */ }
     public function getMaxTopResult(): int { /* ... */ }
 }
 ```
 
-**3. Admin panel / API endpoint** untuk mengubah thresholds tanpa deploy ulang:
+**3. Admin API buat update tanpa deploy ulang:**
 ```
-PUT /api/admin/top-config
-{ "max_top_result": 60 }
+PUT /api/admin/top-config  { "max_top_result": 60 }
 ```
 
-**4. Fallback mechanism**: Jika database unreachable, fallback ke constant default untuk mencegah service outage:
+**4. Fallback**: Kalau DB down, pake constant default biar service tetep jalan.
 ```php
 $maxPodDelay = $configService?->getMaxPodDelay() ?? Calculator::TS_MAX_TOP_DELAY_POD;
 ```
 
-**5. Audit trail**: Setiap perubahan config di-log ke tabel `top_config_audit` untuk traceability dan compliance.
+**5. Audit trail**: Log tiap perubahan config buat traceability.
 
-Method `calculateWithConfig()` di `Calculator.php` sudah siap menerima parameter configurable untuk skenario ini, tanpa mengubah core logic.
+## Edge Cases (udah di-handle di kode)
 
-## Edge Cases Not Covered by Spec (already handled in implementation)
-
-| Edge Case | Handling |
-|-----------|----------|
-| Negative baseline | Treated as 0 (`max(0, baseline)`) |
-| Very large delays (e.g., 999) | Capped individually at 30, then final at 45 |
-| Very large baseline (e.g., 100) | Capped at 45 |
-| Zero across all inputs | Returns 0 |
+| Case | Handling |
+|------|----------|
+| Negative baseline | Dianggap 0 |
+| Delay gede banget (999) | Cap di 30, lalu final cap 45 |
+| Baseline gede (100) | Final cap 45 |
+| Semua input 0 | Output 0 |

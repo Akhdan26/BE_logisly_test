@@ -35,10 +35,10 @@ class MessageParserTest extends TestCase
 
         $result = $this->service->parse($message);
 
-        $this->assertEquals('2024-10-23', $result->date); // 
-        $this->assertEquals('KCS Karawang', $result->origin); // [cite: 63]
+        $this->assertEquals('2024-10-23', $result->date);
+        $this->assertEquals('KCS Karawang', $result->origin);
         $this->assertCount(3, $result->items);
-        $this->assertEquals(['Csa Cikupa', 'Rajeg'], $result->items[0]->destinations); // [cite: 64]
+        $this->assertEquals(['Csa Cikupa', 'Rajeg'], $result->items[0]->destinations);
     }
 
     /** @test */
@@ -56,9 +56,9 @@ class MessageParserTest extends TestCase
 
         $result = $this->service->parse($message);
 
-        $this->assertEquals('2024-10-28', $result->date); // [cite: 73]
+        $this->assertEquals('2024-10-28', $result->date);
         $this->assertCount(4, $result->items);
-        $this->assertEquals(['TSM Purwakarta', 'Dlj Karawang'], $result->items[2]->destinations); // [cite: 77]
+        $this->assertEquals(['TSM Purwakarta', 'Dlj Karawang'], $result->items[2]->destinations);
     }
 
     /** @test */
@@ -73,9 +73,9 @@ class MessageParserTest extends TestCase
 
         $result = $this->service->parse($message);
 
-        $this->assertEquals('2025-02-20', $result->date); // 
+        $this->assertEquals('2025-02-20', $result->date);
         $this->assertGreaterThan(0, count($result->items));
-        $this->assertEquals(47, $result->items[0]->volumeCbm); // [cite: 87]
+        $this->assertEquals(47, $result->items[0]->volumeCbm);
     }
 
     /** @test */
@@ -90,8 +90,8 @@ class MessageParserTest extends TestCase
 
         $result = $this->service->parse($message);
 
-        $this->assertEquals('2024-10-08', $result->date); // [cite: 121]
-        $this->assertEquals('2024-10-11', $result->items[0]->poDate); // [cite: 125]
+        $this->assertEquals('2024-10-08', $result->date);
+        $this->assertEquals('2024-10-11', $result->items[0]->poDate);
         $this->assertEquals('Lotte Pasar Rebo', $result->items[0]->destinations[0]);
     }
 }
