@@ -1,6 +1,14 @@
-# BE Logisly Test - Soal No. 1
+# BE Logisly Test
 
-Message parser untuk parsing pesan teks logistik (origin, tanggal, cargo items) ke format JSON.
+Repository ini berisi jawaban untuk tiga soal Back End Engineer take-home quiz:
+
+| Soal | Topik | Direktori |
+|------|-------|-----------|
+| 1 | WhatsApp Message Parser | `src/`, `index.php`, `tests/` |
+| 2 | Database Design | `database/` |
+| 3 | TOP Calculation | *(coming soon)* |
+
+---
 
 ## Requirements
 
@@ -19,38 +27,67 @@ cd BE_logisly_test
 composer install
 ```
 
-## Run (Soal No. 1)
+---
+
+## Soal No. 1 — WhatsApp Message Parser
+
+### Run
 
 ```bash
 php index.php
 ```
 
-Output yang dihasilkan berupa JSON hasil parsing pesan logistik.
+Output berupa JSON hasil parsing pesan logistik.
 
-## Run Tests
+### Run Tests
 
 ```bash
 vendor/bin/phpunit tests/
-```
-
-Atau dengan output verbose:
-
-```bash
+# atau verbose:
 vendor/bin/phpunit tests/ --testdox
 ```
 
-## Struktur Project
+### Struktur
 
 ```
-├── composer.json          # PSR-4 autoloading (App\ → src/, Tests\ → tests/)
-├── index.php              # Entry point soal no. 1
+├── composer.json
+├── index.php
 ├── src/
-│   ├── MessageParserService.php  # Service utama — orchestrator parsing
+│   ├── MessageParserService.php
 │   ├── Parsers/
-│   │   ├── DateParser.php        # Parser tanggal Indonesia (dd MMM yyyy / dd-mm-yy)
-│   │   └── CargoParser.php       # Parser baris cargo (destinasi + volume + unit + PO date)
+│   │   ├── DateParser.php
+│   │   └── CargoParser.php
 │   └── DTO/
-│       ├── CargoItemDTO.php      # DTO per item cargo
-│       └── ParsedMessageDTO.php  # DTO hasil parsing keseluruhan
+│       ├── CargoItemDTO.php
+│       └── ParsedMessageDTO.php
 └── tests/
-    └── MessageParserTest.php     # PHPUnit test (4 test cases)
+    └── MessageParserTest.php
+```
+
+---
+
+## Soal No. 2 — Database Design
+
+Lihat direktori `database/`:
+
+| File | Isi |
+|------|-----|
+| `database/migration.sql` | DDL schema (tables, indexes, constraints) |
+| `database/query_nearest_trucks.sql` | Query optimasi cari truk dalam radius X km |
+| `database/README.md` | Penjelasan desain: data types, index strategy, tradeoffs |
+
+### Cara menjalankan migration
+
+```bash
+mysql -u root -p < database/migration.sql
+```
+
+### Cara menjalankan query radius
+
+Buka `database/query_nearest_trucks.sql` di MySQL client (ganti parameter `@center_lat`, `@center_lng`, `@radius_km` sesuai kebutuhan).
+
+---
+
+## Soal No. 3 — TOP Calculation
+
+*(coming soon)*
