@@ -6,7 +6,7 @@ Repository ini berisi jawaban untuk tiga soal Back End Engineer take-home quiz:
 |------|-------|-----------|
 | 1 | WhatsApp Message Parser | `src/`, `index.php`, `tests/` |
 | 2 | Database Design | `database/` |
-| 3 | TOP Calculation | *(coming soon)* |
+| 3 | TOP Calculation | `src/TOP/`, `tests/` |
 
 ---
 
@@ -90,4 +90,34 @@ Buka `database/query_nearest_trucks.sql` di MySQL client (ganti parameter `@cent
 
 ## Soal No. 3 — TOP Calculation
 
-*(coming soon)*
+### Run Tests
+
+```bash
+vendor/bin/phpunit tests/TOPCalculatorTest.php --testdox
+```
+
+### Struktur
+
+```
+├── src/TOP/
+│   ├── Calculator.php    # Core calculation logic
+│   └── README.md         # Answers to additional questions
+└── tests/
+    └── TOPCalculatorTest.php  # 21 test cases
+```
+
+### Implementasi
+
+| File | Isi |
+|------|-----|
+| `src/TOP/Calculator.php` | Class `Calculator` dengan method `calculate()` dan `calculateWithConfig()` |
+| `src/TOP/README.md` | Jawaban 3 pertanyaan tambahan (individual cap vs total cap, dampak tanpa cap 45, configurable caps) |
+| `tests/TOPCalculatorTest.php` | 8 required test cases + 13 additional edge cases |
+
+### Test Results
+
+```
+OK (21 tests, 24 assertions)
+```
+
+Semua 8 required test cases (dari soal) dan 13 additional edge cases PASS.
