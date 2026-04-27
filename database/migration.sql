@@ -1,6 +1,6 @@
 -- ============================================================
 -- Database Migration: Trucks & Location History
--- MySQL / MariaDB
+-- MySQL 8.0+ / MariaDB
 -- Soal No. 2 — Database Design
 -- ============================================================
 
@@ -41,6 +41,14 @@ CREATE TABLE IF NOT EXISTS `location_history` (
     `longitude`     DECIMAL(10,7)   NOT NULL COMMENT 'Longitude in WGS84, e.g. 106.8456',
     `address`       VARCHAR(255)    DEFAULT NULL,
 
+    -- Generated column: POINT dari lat/lng, diperlukan untuk spatial index
+    -- MySQL SRID 4326 expects axis order (latitude, longitude), conforming to EPSG:4326.
+    -- POINT(lat, lng) — reversed from common GIS (lng, lat) convention.
+    `coordinates`   POINT GENERATED ALWAYS AS (ST_PointFromText(
+                        CONCAT('POINT(', `latitude`, ' ', `longitude`, ')'), 4326
+                    )) STORED NOT NULL
+                    COMMENT 'Koordinat geografis WGS84 (lat, lng)',
+
     PRIMARY KEY (`id`),
 
     -- Composite index: mempercepat query "latest location per truck"
@@ -49,13 +57,8 @@ CREATE TABLE IF NOT EXISTS `location_history` (
     INDEX `idx_truck_ts` (`truck_id`, `timestamp` DESC),
 
     -- Spatial index: mempercepat bounding-box / radius query dengan ST_Distance_Sphere
-    -- Titik lokasi disimpan sebagai POINT(lng, lat) untuk kompatibilitas spatial MySQL
-    -- (perhatikan: POINT(X, Y) = POINT(longitude, latitude))
-    SPATIAL INDEX `idx_spatial` ((ST_PointFromText(CONCAT('POINT(', `longitude`, ' ', `latitude`, ')'), 4326))),
-
-    -- Untuk query bounding-box manual (antara WHERE lat BETWEEN ... AND lng BETWEEN ...)
-    -- composite index ini bisa membantu, tapi spatial index biasanya lebih efisien.
-    -- INDEX `idx_lat_lng` (`latitude`, `longitude`)
+    -- R-tree index pada generated column bertipe POINT
+    SPATIAL INDEX `idx_spatial` (`coordinates`),
 
     CONSTRAINT `fk_location_truck`
         FOREIGN KEY (`truck_id`) REFERENCES `trucks` (`truck_id`)
@@ -67,8 +70,8 @@ CREATE TABLE IF NOT EXISTS `location_history` (
   COMMENT='Riwayat lokasi truk (append-only)';
 
 
--- ------------------------------------------------------------
--- Notes:
+-- ============================================================
+-- Catatan desain:
 --
 -- 1. Tipe data:
 --    - BIGINT UNSIGNED: kapasitas hingga ~18 quintillion, cukup untuk puluhan juta row.
@@ -77,20 +80,23 @@ CREATE TABLE IF NOT EXISTS `location_history` (
 --    - DATETIME(0): tanpa fractional seconds, cukup untuk tracking lokasi.
 --    - utf8mb4: mendukung emoji dan karakter internasional.
 --
--- 2. Indeks:
+-- 2. Generated column `coordinates` (POINT SRID 4326):
+--    - STORED: dihitung saat INSERT/UPDATE, disimpan fisik di disk.
+--      Cocok untuk append-only table (insert-heavy, jarang update).
+--      Space overhead ~25 bytes per row (POINT internal format).
+--    - Jika khawatir storage, bisa pakai VIRTUAL (dihitung on-the-fly),
+--      tapi spatial index tetap butuh STORED agar bisa di-index.
+--
+-- 3. Indeks:
 --    - idx_license_plate (UNIQUE): optimal untuk exact-match lookup plat nomor.
 --    - idx_truck_ts (truck_id, timestamp DESC): covering index untuk "latest location per truck"
 --      dan join ke trucks.
---    - SPATIAL index: mempercepat query radius dengan ST_Distance_Sphere atau MBRContains.
+--    - idx_spatial (SPATIAL): R-tree index pada coordinates, mempercepat query
+--      ST_Distance_Sphere / MBRContains untuk pencarian radius.
 --
--- 3. Tradeoff spatial index vs manual bounding-box:
---    - Spatial index bisa langsung digunakan dengan ST_Within / ST_Distance.
---    - Namun jika MySQL versi lama, bisa fallback ke bounding-box manual dengan
---      composite index (latitude, longitude) + kalkulasi Haversine di aplikasi.
---    - Untuk MariaDB, syntax spatial mungkin sedikit berbeda (pakai GEOMETRY type).
---
--- 4. Jika menggunakan MySQL < 5.7 atau MariaDB:
---    - SPATIAL index hanya bisa dibuat pada kolom bertipe GEOMETRY.
---    - Alternatif: tambahkan kolom `coordinates POINT NOT NULL SRID 4326` 
---      yang di-populate via trigger atau aplikasi.
+-- 4. Tradeoff STORED vs VIRTUAL generated column:
+--    - STORED: lebih cepat dibaca (tidak dihitung ulang), bisa di-index (spatial).
+--      Overhead write ~25 byte per row.
+--    - VIRTUAL: hemat storage (tidak disimpan), tapi tidak bisa spatial index.
+--    - Untuk append-only table: STORED lebih baik karena write-once, read-many.
 -- ============================================================
